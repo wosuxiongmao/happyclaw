@@ -1,6 +1,7 @@
 import { Bot } from 'grammy';
 import crypto from 'crypto';
 import { Agent as HttpsAgent } from 'node:https';
+import { ProxyAgent } from 'proxy-agent';
 import {
   storeChatMetadata,
   storeMessageDirect,
@@ -13,6 +14,7 @@ import { logger } from './logger.js';
 
 export interface TelegramConnectionConfig {
   botToken: string;
+  proxyUrl?: string;
 }
 
 export interface TelegramConnectOpts {
@@ -142,7 +144,12 @@ export function createTelegramConnection(config: TelegramConnectionConfig): Tele
   let reconnectTimer: NodeJS.Timeout | null = null;
   let stopping = false;
   let readyFired = false;
-  const telegramApiAgent = new HttpsAgent({ keepAlive: true, family: 4 });
+  const telegramApiAgent =
+    config.proxyUrl && config.proxyUrl.trim()
+      ? new ProxyAgent({
+        getProxyForUrl: () => config.proxyUrl!.trim(),
+      })
+      : new HttpsAgent({ keepAlive: true, family: 4 });
 
   function isDuplicate(msgId: string): boolean {
     const now = Date.now();
@@ -449,6 +456,7 @@ export async function connectTelegram(
 
   _defaultInstance = createTelegramConnection({
     botToken: config.botToken,
+    proxyUrl: config.proxyUrl,
   });
 
   return _defaultInstance.connect(opts);

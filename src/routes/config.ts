@@ -2,6 +2,7 @@
 
 import { randomBytes, createHash } from 'node:crypto';
 import { Agent as HttpsAgent } from 'node:https';
+import { ProxyAgent } from 'proxy-agent';
 import { Hono } from 'hono';
 import type { Variables } from '../web-context.js';
 import { deleteRegisteredGroup, deleteChatHistory } from '../db.js';
@@ -54,6 +55,20 @@ const configRoutes = new Hono<{ Variables: Variables }>();
 let deps: any = null;
 export function injectConfigDeps(d: any) {
   deps = d;
+}
+
+function createTelegramApiAgent(proxyUrl?: string): HttpsAgent | ProxyAgent {
+  if (proxyUrl && proxyUrl.trim()) {
+    const fixedProxyUrl = proxyUrl.trim();
+    return new ProxyAgent({
+      getProxyForUrl: () => fixedProxyUrl,
+    });
+  }
+  return new HttpsAgent({ keepAlive: false, family: 4 });
+}
+
+function destroyTelegramApiAgent(agent: HttpsAgent | ProxyAgent): void {
+  agent.destroy();
 }
 
 // --- Routes ---
@@ -527,6 +542,11 @@ configRoutes.put(
     } else if (validation.data.clearBotToken === true) {
       next.botToken = '';
     }
+    if (typeof validation.data.proxyUrl === 'string') {
+      next.proxyUrl = validation.data.proxyUrl;
+    } else if (validation.data.clearProxyUrl === true) {
+      next.proxyUrl = '';
+    }
     if (typeof validation.data.enabled === 'boolean') {
       next.enabled = validation.data.enabled;
     }
@@ -534,6 +554,7 @@ configRoutes.put(
     try {
       const saved = saveTelegramProviderConfig({
         botToken: next.botToken,
+        proxyUrl: next.proxyUrl,
         enabled: next.enabled,
       });
 
@@ -567,13 +588,14 @@ configRoutes.post(
       return c.json({ error: 'Telegram bot token not configured' }, 400);
     }
 
+    const agent = createTelegramApiAgent(config.proxyUrl);
     try {
       const { Bot } = await import('grammy');
       const testBot = new Bot(config.botToken, {
         client: {
           timeoutSeconds: 15,
           baseFetchConfig: {
-            agent: new HttpsAgent({ keepAlive: false, family: 4 }),
+            agent,
           },
         },
       });
@@ -605,9 +627,12 @@ configRoutes.post(
         err instanceof Error ? err.message : 'Failed to connect to Telegram';
       logger.warn({ err }, 'Failed to test Telegram connection');
       return c.json({ error: message }, 400);
+    } finally {
+      destroyTelegramApiAgent(agent);
     }
   },
 );
+
 
 // ─── Registration config ─────────────────────────────────────────
 
@@ -934,9 +959,18 @@ configRoutes.post('/user-im/telegram/test', authMiddleware, async (c) => {
     return c.json({ error: 'Telegram bot token not configured' }, 400);
   }
 
+  const globalTelegramConfig = getTelegramProviderConfig();
+  const agent = createTelegramApiAgent(globalTelegramConfig.proxyUrl);
   try {
     const { Bot } = await import('grammy');
-    const testBot = new Bot(config.botToken);
+    const testBot = new Bot(config.botToken, {
+      client: {
+        timeoutSeconds: 15,
+        baseFetchConfig: {
+          agent,
+        },
+      },
+    });
     const me = await testBot.api.getMe();
     return c.json({
       success: true,
@@ -949,6 +983,8 @@ configRoutes.post('/user-im/telegram/test', authMiddleware, async (c) => {
       err instanceof Error ? err.message : 'Failed to connect to Telegram';
     logger.warn({ err }, 'Failed to test user Telegram connection');
     return c.json({ error: message }, 400);
+  } finally {
+    destroyTelegramApiAgent(agent);
   }
 });
 
