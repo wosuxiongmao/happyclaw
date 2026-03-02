@@ -1,13 +1,23 @@
+# Windows 下的 GNU Make 可能忽略 SHELL 并退回到 cmd.exe（导致 ! was unexpected）
+# 通过 MAKESHELL + SHELL 同时指定 sh.exe，可强制使用 POSIX shell。
+ifeq ($(OS),Windows_NT)
+MAKESHELL := C:/Progra~1/Git/usr/bin/sh.exe
+SHELL := C:/Progra~1/Git/usr/bin/sh.exe
+.SHELLFLAGS := -lc
+else
+SHELL := bash
+.SHELLFLAGS := -lc
+endif
+
 .PHONY: dev dev-backend dev-web build build-backend build-web start \
        typecheck typecheck-backend typecheck-web typecheck-agent-runner \
        format format-check install clean reset-init update-sdk sync-types help
 
 # ─── Development ─────────────────────────────────────────────
 
-dev: ## 启动前后端（首次自动安装依赖和构建容器镜像）
-	@if [ ! -d node_modules ]; then echo "📦 首次运行，安装依赖..."; $(MAKE) install; fi
-	@if command -v docker >/dev/null 2>&1 && ! docker image inspect happyclaw-agent:latest >/dev/null 2>&1; then echo "🐳 构建 Agent 容器镜像..."; ./container/build.sh; fi
-	@npm --prefix container/agent-runner run build --silent 2>/dev/null || npm --prefix container/agent-runner run build
+dev: ## 启动前后端（Windows 兼容：不使用 bash 条件语法）
+	@echo "启动开发环境（如首次运行请先执行 make install）"
+	npm --prefix container/agent-runner run build
 	npm run dev:all
 
 dev-backend: ## 仅启动后端
@@ -30,9 +40,8 @@ build-web: ## 仅编译前端
 
 # ─── Production ──────────────────────────────────────────────
 
-start: ## 一键启动生产环境（首次自动安装依赖和构建容器镜像）
-	@if [ ! -d node_modules ]; then echo "📦 首次运行，安装依赖..."; $(MAKE) install; fi
-	@if command -v docker >/dev/null 2>&1 && ! docker image inspect happyclaw-agent:latest >/dev/null 2>&1; then echo "🐳 构建 Agent 容器镜像..."; ./container/build.sh; fi
+start: ## 一键启动生产环境（Windows 兼容：不使用 bash 条件语法）
+	@echo "启动生产环境（如首次运行请先执行 make install，并确保已构建容器镜像）"
 	$(MAKE) build
 	npm run start
 
